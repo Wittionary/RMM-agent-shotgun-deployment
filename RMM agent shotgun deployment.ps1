@@ -1,6 +1,10 @@
 Param(
-    # Options: Servers, Workstations, Both, All (both and all are the same)
+    # The organization's ID that you've defined in Kaseya (System > Orgs/Groups/Depts/Staff > Manage)
     [Parameter(Mandatory = $True, Position = 0)]
+    [string]$organizationID, 
+
+    # Options: Servers, Workstations, Both, All (both and all are the same)
+    [Parameter(Mandatory = $True, Position = 1)]
     [string]$scope 
 )
 
@@ -139,13 +143,14 @@ else {
 $scope = $scope.ToLower()
 $daysAgo = (Get-Date).AddDays(-30)
 $listPath = "C:\temp\ComputerList.txt"
+$listPath2 = "C:\temp\ComputerList2.txt"
 
 if ($scope -like "*server*") {
     $dcs = Get-ADComputer -Filter { (lastLogonDate -gt $daysAgo) -and (OperatingSystem -Like '*Server*')} -Properties lastLogonDate
 
     foreach ($dc in $dcs) { 
         Get-ADComputer $dc.Name -Properties lastlogontimestamp | 
-            Select-Object @{n = "Computer"; e = {$_.Name}}, @{Name = "Lastlogon"; Expression = {[DateTime]::FromFileTime($_.lastLogonTimestamp)}} |
+            Select-Object @{n = "Computer"; e = {$_.Name}} |
             Out-File -FilePath $listPath -Append
     }
 }
@@ -154,7 +159,7 @@ elseif ($scope -like "*workstation*") {
 
     foreach ($dc in $dcs) { 
         Get-ADComputer $dc.Name -Properties lastlogontimestamp | 
-            Select-Object @{n = "Computer"; e = {$_.Name}}, @{Name = "Lastlogon"; Expression = {[DateTime]::FromFileTime($_.lastLogonTimestamp)}} |
+            Select-Object @{n = "Computer"; e = {$_.Name}} |
             Out-File -FilePath $listPath -Append
     }
 }
@@ -163,7 +168,7 @@ elseif (($scope -like "*both*") -or ($scope -like "*all*")) {
 
     foreach ($dc in $dcs) { 
         Get-ADComputer $dc.Name -Properties lastlogontimestamp | 
-            Select-Object @{n = "Computer"; e = {$_.Name}}, @{Name = "Lastlogon"; Expression = {[DateTime]::FromFileTime($_.lastLogonTimestamp)}} |
+            Select-Object @{n = "Computer"; e = {$_.Name}} |
             Out-File -FilePath $listPath -Append
     }
 }
@@ -171,16 +176,29 @@ else {
     # TODO: Exit script with failure code
 }
 
+$file = Get-Content $listPath
+# Reduce file to just computer names
+foreach ($line in $file) {
+    if (($line -eq "") -or ($line -like "*Computer*") -or ($line -like "*----*")) {
+        # Do nothing
+    }
+    else {
+        $line | Out-File -FilePath $listPath2 -append
+    }
+}
+
 # ------------------------------------- Download RMM agent
+Write-Host "Downloading RMM agent - " (Get-Date).ToShortTimeString()
 $vsaURL = "https://vsa.data-blue.com"
 $agentEXE = "KcsSetup.exe"
 $agentSwitches = " /e /g=root." + $organizationID + " /c /j /s" # Switches: http://help.kaseya.com/WebHelp/EN/VSA/9040000/#493.htm
 $url = $vsaURL + "/install/VSA-default--1/" + $agentEXE
-$output = "C:\$agentEXE"
+$output = "C:\temp\$agentEXE"
 $wc = New-Object System.Net.WebClient
 $wc.DownloadFile($url, $output) 
 
 # ------------------------------------- Download PsExec
+Write-Host "Downloading PsTools - " (Get-Date).ToShortTimeString()
 $timeout = 5 # Seconds for psexec to spend attempting to connect to remote PC
 $url = "https://download.sysinternals.com/files/PSTools.zip"
 $psToolsZip = "C:\temp\PSTools.zip"
@@ -189,7 +207,8 @@ $psExecPath = "C:\temp\PSTools\psexec.exe"
 $wc = New-Object System.Net.WebClient
 $wc.DownloadFile($url, $psToolsZip)     
 
-# Unzip the PSTools package
+# ------------------------------------- Unzip the PSTools package
+Write-Host "Unzipping PSTools - " (Get-Date).ToShortTimeString()
 # Source: https://stackoverflow.com/questions/27768303/how-to-unzip-a-file-in-powershell
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 function Unzip {
@@ -200,11 +219,16 @@ function Unzip {
 
 Unzip $psToolsZip $psToolsPath
 
-# Move to sys32 so it can be used in cmd prompt
+# ------------------------------------- Move to sys32 so it can be used in cmd prompt
 Move-Item $psExecPath "C:\Windows\System32\psexec.exe"
 
-# Run psexec and pipe file to it
-& psexec -c KcsSetup.exe -n $timeout -s -v @file $listPath
+# ------------------------------------- Run psexec and pipe file to it
+& psexec -c "C:\temp\$agentEXE$agentSwitches" -n $timeout -s -v @file $listPath -accepteula
 
+# ------------------------------------- CLEANUP -------------------------------------
+Write-Host "Cleaning up - " (Get-Date).ToShortTimeString()
 # Delete Temp folder 
 Move-Item "C:\Windows\System32\psexec.exe" $psExecPath
+
+# ------------------------------------- End of Script -------------------------------------
+Write-Host "End of script - " (Get-Date).ToShortTimeString()
