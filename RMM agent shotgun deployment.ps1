@@ -35,8 +35,11 @@ $daysAgo = (Get-Date).AddDays(-30)
 $listPath = "C:\temp\ComputerList.txt"
 $listPath2 = "C:\temp\ComputerList2.txt"
 
-New-Item "C:\temp\" -ItemType Directory
+if (!(Test-Path "C:\temp\")) {
+    New-Item "C:\temp\" -ItemType Directory
+}
 
+# TODO: Check for existence of $listPath
 if ($scope -like "*server*") {
     $dcs = Get-ADComputer -Filter { (lastLogonDate -gt $daysAgo) -and (OperatingSystem -Like '*Server*')} -Properties lastLogonDate
 
@@ -79,6 +82,10 @@ foreach ($line in $file) {
     }
 }
 
+# ------------------------------------- Remove whitespace
+$content = Get-Content $listPath2
+$content | Foreach {$_.TrimEnd()} | Set-Content $listPath
+
 # ------------------------------------- Download RMM agent
 Write-Host "Downloading RMM agent - " (Get-Date).ToShortTimeString()
 $vsaURL = "https://vsa.data-blue.com"
@@ -115,13 +122,15 @@ Unzip $psToolsZip $psToolsPath
 Move-Item $psExecPath "C:\Windows\System32\psexec.exe"
 
 # ------------------------------------- Run psexec and pipe file to it
-& psexec @$listPath2 -c -v -n $timeout -s -accepteula cmd "C:\temp\$agentEXE$agentSwitches"
+& psexec @$listPath -c -v -n $timeout -s -accepteula cmd "C:\temp\$agentEXE"$agentSwitches
 
+<#
 Start-Process -Wait `
     -PSPath $psExecPath -ArgumentList "@$listPath2 -c -v -n $timeout -accepteula cmd C:\temp\$agentEXE$agentSwitches" `
     -RedirectStandardError c:\temp\error.log -RedirectStandardOutput c:\temp\output.log
 
 $output = cmd /s /c "psexec.exe @$listPath2 -c -v -n $timeout -accepteula cmd C:\temp\$agentEXE$agentSwitches 2>&1"
+#>
 
 # ------------------------------------- CLEANUP -------------------------------------
 Write-Host "Cleaning up - " (Get-Date).ToShortTimeString()
