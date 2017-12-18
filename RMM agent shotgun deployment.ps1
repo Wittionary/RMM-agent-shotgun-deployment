@@ -122,7 +122,7 @@ Unzip $psToolsZip $psToolsPath
 Move-Item $psExecPath "C:\Windows\System32\psexec.exe"
 
 # ------------------------------------- Run psexec and pipe file to it
-& psexec @$listPath -c -v -n $timeout -s -accepteula cmd "C:\temp\$agentEXE"$agentSwitches
+& psexec @$listPath -c -v -n $timeout -accepteula C:\temp\$agentEXE $agentSwitches
 
 <#
 Start-Process -Wait `
